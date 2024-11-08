@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  nats:
+    image: nats:latest
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--http_port", "8222", "--prometheus_port", "7777"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    depends_on:
+      - nats
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    depends_on:
+      - prometheus
+
+  publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile.publisher
+    environment:
+      - NATS_URL=nats://nats:4222
+      - PUBLISH_RATE=1000
+      - TEST_DURATION=300
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  subscriber:
+    build:
+      context: .
+      dockerfile: Dockerfile.subscriber
+    environment:
+      - NATS_URL=nats://nats:4222
+      - TEST_DURATION=300
+    depends_on:
+      nats:
+        condition: service_healthy
